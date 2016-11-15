@@ -1,8 +1,10 @@
 package HTTP::QuickBase;
 
-#Version $Id: QuickBase.pm,v 1.54 2006/12/05 17:25:23 cvonroes Exp $
+#Version $Id: QuickBase.pm,v 1.61 2009/01/21 17:23:30 rpilachowski Exp $
+# Updated to support Tokens (gmm)
+# Updated to support user tokens (mn)
 
-( $VERSION ) = '$Revision: 1.53 $ ' =~ /\$Revision:\s+([^\s]+)/;
+( $VERSION ) = '$Revision: 1.61 $ ' =~ /\$Revision:\s+([^\s]+)/;
 
 use strict;
 use LWP::UserAgent;
@@ -16,7 +18,7 @@ HTTP::QuickBase - Create a web shareable database in under a minute
 
 =head1 VERSION
 
-$Revision: 1.54 $
+$Revision: 1.61 $
 
 =head1 SYNOPSIS
 
@@ -35,8 +37,13 @@ $Revision: 1.54 $
 
  $username="fred";
  $password="flinstone";
-
  $qdb->authenticate($username, $password);
+
+ #Or you can use user tokens instead of credentials
+ 
+ $usertoken="<string>";
+ $qdb->setUserToken($usertoken);
+
  $database_name= "GuestBook Template";
  
  #I don't recommend using the getIDbyName method because there are many tables with the same name.
@@ -152,6 +159,16 @@ access to the database.
 =item $qdb->authenticate($username, $password)
 
 Sets the username and password used for subsequent method invocations
+
+=back
+
+=head2 UserToken
+
+=over 4
+
+=item $qdb->setUserToken($usertoken)
+
+Sets the usertoken used for subsequent method invocations; user tokens take the place of user credentials
 
 =back
 
@@ -542,6 +559,7 @@ sub new
 		'URLprefix' => $prefix || "https://www.quickbase.com/db" ,
 		'ticket' => undef,
 		'apptoken' => "",
+		'usertoken' => "",
 		'error' => undef,
 		'errortext' => undef,
 		'username' => undef,
@@ -569,6 +587,13 @@ sub setAppToken($)
 {
   my($self,$apptoken) = @_;
   $self->{'apptoken'} = $apptoken;
+}
+
+# new for quickbase usertoken capability
+sub setUserToken($)
+{
+  my($self,$usertoken) = @_;
+  $self->{'usertoken'} = $usertoken;
 }
 
 sub getTicket()
@@ -1042,12 +1067,6 @@ sub GetUserInfo($)
     if($res =~ /<name>(.*)<\/name>/ ){
       $userInfo{"name"} = $1
     }  
-    if($res =~ /<firstName>(.*)<\/firstName>/ ){
-      $userInfo{"firstName"} = $1
-    }  
-    if($res =~ /<lastName>(.*)<\/lastName>/ ){
-      $userInfo{"lastName"} = $1
-    }  
     if($res =~ /id=\"(.*)\"/ ){
       $userInfo{"id"} = $1
     }  
@@ -1269,6 +1288,12 @@ $req->header('QUICKBASE-ACTION' => "$action");
 if ($self->{'apptoken'} ne "" && $self->{'credentials'} !~ /<apptoken>/)
    {
       $self->{'credentials'} .= "<apptoken>".$self->{'apptoken'}."</apptoken>";
+   }
+
+# for usertoken -- no longer needs to use apptoken
+if ($self->{'usertoken'} ne "" && $self->{'credentials'} !~ /<usertoken>/)
+   {
+      $self->{'credentials'} .= "<usertoken>".$self->{'usertoken'}."</usertoken>";
    }
 
 if($content =~ /^<qdbapi>/)
@@ -1526,6 +1551,46 @@ sub doQuery ($$$$$)
 		{	
 		push (@result, $record);
 		}
+	return @result;
+	}
+	
+sub DoQueryCount ($$$$$)
+	{
+	my ($self, $QuickBaseID, $query)=@_;
+	return $self->doQueryCount ($QuickBaseID, $query);
+	}	
+	
+sub doQueryCount ($$$$$)
+	{
+	my ($self, $QuickBaseID, $query)=@_;
+	
+	my $content;
+	my $result;
+	my @result;
+	my $record={};
+	my $field;
+	my @labels;
+	my $fieldvalue;
+	my $counter = 0;
+	my $numfields;
+	my $i;
+
+	if ($query =~ /^\{.*\}$/)
+		{
+		$content = "<qdbapi><query>$query</query>";
+		}
+	elsif ($query =~ /^\d+$/)
+		{
+		$content = "<qdbapi><qid>$query</qid>";
+		}
+	else 
+		{
+		$content = "<qdbapi><qname>$query</qname>";
+		}
+
+	$content .= "</qdbapi>";
+	$result = $self->PostAPIURL ($QuickBaseID, "API_DoQueryCount", $content)->content;
+	@result = $result =~ /<numMatches>([^<]+)<\/numMatches>/g;
 	return @result;
 	}
 	
